@@ -16,6 +16,7 @@ endif()
 set(PICO_EXAMPLES_PATH ${PROJECT_SOURCE_DIR})
 
 # Initialize the SDK
+set(PICO_BOARD pico_w)
 pico_sdk_init()
 
 
@@ -23,8 +24,17 @@ add_executable(blink
         main.c
         )
 
+target_include_directories(blink PRIVATE
+    ${CMAKE_CURRENT_LIST_DIR}
+)        
+
+target_compile_definitions(blink PRIVATE
+    PICO_CYW43_ARCH_THREADSAFE_BACKGROUND=1
+    CYW43_HOST_NAME="PicoW-Lcd-Node"
+)        
+
 # pull in common dependencies
-target_link_libraries(blink pico_stdlib hardware_i2c)
+target_link_libraries(blink pico_stdlib hardware_i2c pico_cyw43_arch_lwip_threadsafe_background pico_lwip_http)
 
 # create map/bin/hex file etc.
 pico_add_extra_outputs(blink)
