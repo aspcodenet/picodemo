@@ -30,6 +30,44 @@ const char* THINGSPEAK_API_KEY = "IBT5YAMEJIWCRWV1";
 #define LCD_ENABLE    0x04 // Bit 2: Enable (Enter-knappen)
 #define LCD_BACKLIGHT 0x08 // Bit 3: Bakgrundsbelysning (1=På)
 
+
+#define BIT_SET(var, pos)   ((var) |= (1U << (pos)))
+#define BIT_CLEAR(var, pos) ((var) &= ~(1U << (pos)))
+
+
+
+// gloval  variabel - REGISTER
+byte dReg;
+
+// siffran 32 binört = 00100000
+
+// dReg = 00000010;
+// d
+BIT_SET(dReg,5);
+BIT_CLEAR(dReg,3);
+
+//dReg = dReg | ( 1         << 5); // sätter bit 5 till 1
+// 00000010
+// 00100000
+// 00100010
+
+// 00001111
+// Programmera så att bit 2 släcks på dReg
+dReg = dReg & ~( 1 << 2); // släcker bit 2
+//             00000001
+//             00000100
+//  ~            11111011
+
+
+
+
+            // 00000001  
+             // 1 flyttas 5 steg till vänster
+                // 1 << 5 = 00100000
+
+dRe = 32;
+
+
 // Funktion för att skicka en "nibble" (4 bitar) och pulsa Enable
 void lcd_pulse_enable(uint8_t val) {
     uint8_t buf[2];
@@ -37,6 +75,41 @@ void lcd_pulse_enable(uint8_t val) {
     buf[1] = val;              // Sätt Enable låg (skärmen läser nu)
     i2c_write_blocking(I2C_PORT, LCD_ADDR, buf, 2, false);
 }
+
+
+// lcd_send_byte
+//Här är ett exempel på hur logiken i funktionen brukar se ut bakom kulisserna:
+// Dela upp byten: Den tar de översta 4 bitarna (High Nibble) och skickar dem först, sedan de nedersta 4 bitarna (Low Nibble).
+// Sätt RS-pinnen: Om du skickar ett kommando (som i din initiering) sätts RS till 0. Om du skickar text sätts RS till 1.
+// Klockpulsen (Enable): För varje nibble måste vi "tala om" för displayen att läsa av databussen. Detta görs genom att dra Enable (E) pinnen hög, vänta en kort stund, och dra den låg igen.
+// void lcd_send_byte(uint8_t val, int rs) {
+//     // Sätt RS-pinnen (0 för instruktion, 1 för data)
+//     gpio_put(LCD_RS_PIN, rs);
+
+//     // 1. Skicka hög nibble (bit 4-7)
+//     lcd_send_nibble(val >> 4);
+    
+//     // 2. Skicka låg nibble (bit 0-3)
+//     lcd_send_nibble(val & 0x0F);
+    
+//     // En kort paus så att LCD:n hinner bearbeta (ca 100us)
+//     sleep_us(100);
+// }
+// Det är här den faktiska "handskakningen" sker enligt databladet:
+// Lägg ut 4 bitar på datalinjerna (D4, D5, D6, D7).
+// Enable = 1 (Hög).
+// Vänta (enligt databladet krävs en Pulse Width på minst 450ns).
+// Enable = 0 (Låg). Vid denna "fallande flank" läser LCD:n av vad som 
+// finns på pinnarna.
+// void lcd_pulse_enable(uint8_t val) {
+//     // Vi lägger till Enable-biten (t.ex. mask 0x04) till värdet
+//     // Här skickar vi data till en I2C-expander eller direkt till GPIO
+//     i2c_write_byte(val | LCD_ENABLE_BIT); 
+//     sleep_us(1); // Enligt databladet: min 450ns puls
+    
+//     i2c_write_byte(val & ~LCD_ENABLE_BIT);
+//     sleep_us(50); // Vänta på att kommandot processas
+// }
 
 void lcd_send_byte(uint8_t val, int mode) {
     uint8_t high_nibble = mode | (val & 0xF0) | LCD_BACKLIGHT;
@@ -57,7 +130,9 @@ void http_client_callback(void *arg, httpc_result_t res, u32_t content_len, u32_
 void send_to_thingspeak(int value) {
     char url[128];
     // Skapa URL:en för ThingSpeak
-    snprintf(url, sizeof(url), "/update?api_key=%s&field1=LektionIdag&field2=%d", THINGSPEAK_API_KEY, value, value);
+    // https://api.thingspeak.com/update?api_key=IBT5YAMEJIWCRWV1&field2=2
+    snprintf(url, sizeof(url), "/update?api_key=%s&field1=LektionIdag&field2=%d", 
+            THINGSPEAK_API_KEY, value);
     
     struct altcp_pcb *pcb = NULL; // Standard säkerhetsinställning
     
@@ -87,14 +162,34 @@ void send_to_thingspeak(int value) {
 }
 
 void lcd_init() {
-    sleep_ms(50);
+    sleep_ms(50); // Wait for more than 15 ms after Vcc rises to 4.5V
+
     // Initieringssekvens enligt databladet för 4-bitars läge
-    lcd_send_byte(0x03, 0); 
-    lcd_send_byte(0x03, 0);
-    lcd_send_byte(0x03, 0);
+    // Initializing by Instruction
+
+    // Varför 0x03? I databladets flödesschema för 
+    // "Initialization by Instruction" skickas bitarna DB5=1, DB4=1 
+    // (vilket är 0011 i binär form, eller 0x03 i den höga nibbeln). 
+    // Detta sätter DL=1 (8-bitars interface).
+
+    lcd_send_byte(0x03, 0); // Försök 1: Sätt till 8-bitars läge
+    lcd_send_byte(0x03, 0); // Försök 2: Upprepa (om den var ur synk)
+    lcd_send_byte(0x03, 0); // Försök 3: Nu är vi garanterat i 8-bitars
     lcd_send_byte(0x02, 0); // Tvinga till 4-bitars läge
+    //Varför 0x02? Genom att skicka 0010 binärt sätts DL=0, 
+    // vilket aktiverar 4-bitars läge. Från och med nu 
+    // förväntar sig LCD:n att varje kommando skickas i 
+    // två delar (två "nibbles").
+
+
+    // 0x28 i binär form är 0010 1000.
+    // Enligt databladet för Function Set:
+    // DL = 0: 4-bitars läge (redan satt, men bekräftas här).
+    // N = 1: 2 raders display (bit 3).
+    // F = 0: 5x8 punkters teckenstorlek (bit 2).
 
     lcd_send_byte(0x28, 0); // 2 rader, 5x8 punkter
+
     lcd_send_byte(0x0C, 0); // Display på, markör av
     lcd_send_byte(0x01, 0); // Rensa skärmen
     sleep_ms(2);
